@@ -1,9 +1,13 @@
 import cv2
 import os
 import argparse
+from collections import deque
 
+def sharpness_score(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return cv2.Laplacian(gray, cv2.CV_64F).var()
 
-def extract_frames(video_path, output_dir, fps=None, num_images=None):
+def extract_frames(video_path, output_dir, fps=None, num_images=None, window=5):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -25,6 +29,7 @@ def extract_frames(video_path, output_dir, fps=None, num_images=None):
     else:
         frame_step = max(total_frames // num_images, 1)
 
+    buffer = deque(maxlen=2 * window + 1)
     frame_idx = 0
     saved_idx = 0
 
@@ -33,10 +38,21 @@ def extract_frames(video_path, output_dir, fps=None, num_images=None):
         if not ret:
             break
 
-        if frame_idx % frame_step == 0:
-            output_path = os.path.join(output_dir, f"frame_{saved_idx:05d}.jpg")
-            cv2.imwrite(output_path, frame)
-            saved_idx += 1
+        score = sharpness_score(frame)
+        buffer.append((frame_idx, frame, score))
+
+        # Only act when buffer is full
+        if len(buffer) == buffer.maxlen:
+            center_idx = buffer[window][0]
+
+            # Check if this is a sampling point
+            if center_idx % frame_step == 0:
+                best = max(buffer, key=lambda x: x[2])
+                _, best_frame, best_score = best
+
+                output_path = os.path.join(output_dir, f"frame_{saved_idx:05d}.jpg")
+                cv2.imwrite(output_path, best_frame)
+                saved_idx += 1
 
         frame_idx += 1
 
